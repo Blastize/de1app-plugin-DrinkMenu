@@ -1,0 +1,22 @@
+# Runtime state written by the app on the tablet -- personal data.
+*.tdb
+
+# Internal working notes and PC-side dev tooling -- kept local, never published.
+PROJECT_STATE.md
+tools/
+
+# Plugin-local working folders (never shipped)
+backup/
+backups/
+trash/
+log/
+logs/
+*.bak
+
+# Version archives
+*Archive/
+
+# OS cruft
+desktop.ini
+Thumbs.db
+.DS_Store
