@@ -15,6 +15,10 @@ Version 1.17.0 · a plugin for the Decent DE1app · by Blastize
 
 **Custom drinks.** Pick a vessel, add and reorder layers, write the method, choose where it sits in the menu, link a profile.
 
+![The Favorites tab: only the starred drinks](docs/favorites.png)
+
+**Favorites.** Star a drink and the Favorites tab becomes your own short menu.
+
 ## Install
 
 Copy the folder to `de1plus/plugins/DrinkMenu/` (including the three `<width>x<height>/bg.png` folders), restart the app, enable **Drink Menu** under Extensions.
