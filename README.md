@@ -1,5 +1,33 @@
 # Drink Menu
 
+**A visual espresso drink menu on the tablet: every drink drawn as a cup with its layers.**
+Version 1.17.0 · a plugin for the Decent DE1app · by Blastize
+
+![The menu: a grid of cups with coloured layers, tabs for hot, cold, milk, favorites and custom](docs/menu.png)
+
+**The menu.** 45 espresso drinks, each drawn as a cup with its ingredient layers and its size. Tabs for hot, cold, milk, no milk, favorites and your own drinks; ml or oz.
+
+![Drink detail: the cup with labelled layers, totals, ratio and method](docs/detail.png)
+
+**Drink detail.** The layers labelled on the cup, the total and ratio, the method steps, one or two shots. Star it, hide it, or send its linked profile to the machine.
+
+![The editor: vessel, layers, method, group and linked profile for a custom drink](docs/editor.png)
+
+**Custom drinks.** Pick a vessel, add and reorder layers, write the method, choose where it sits in the menu, link a profile.
+
+## Install
+
+Copy the folder to `de1plus/plugins/DrinkMenu/` (including the three `<width>x<height>/bg.png` folders), restart the app, enable **Drink Menu** under Extensions.
+
+## Safety
+
+Writes only its own settings file (unit, favorites, hidden drinks, custom drinks). No shot database or history access. "To machine" loads a profile and sets the hot-water volume through the app's own calls, on one explicit tap, and never starts a flow.
+
+<details>
+<summary><b>Full reference and version notes</b></summary>
+
+## Reference
+
 A DE1app plugin that draws a visual espresso drink menu on the tablet:
 every drink rendered as a cup with colored ingredient layers, a
 tab-filtered grid, a full-screen detail page, and favorites, hiding and
@@ -8,12 +36,6 @@ pages carry the design mock's own warm brown look, whatever skin theme
 is active.
 
 Author: **Blastize** - Current version: **1.17.0** (Pass 48: UX review)
-
-![Drink Menu on the tablet: the drink grid with tabs, favorites and the unit toggle](docs/menu.png)
-
-![Drink detail page](docs/detail.png)
-
-![Custom drink editor](docs/editor.png)
 
 ## New in v1.17.0
 
@@ -757,3 +779,5 @@ Restart the app, enable "Drink Menu" under Extensions, tap Settings.
 | 24 | v0.13.1 | The detail and preview cups keep the card's own text inset from every edge, and the glass highlight ends where the corner curve begins |
 | 25 | v0.13.2 | One inset all round the hero and preview cups (equal air above and below a height-bound vessel), and the photo's transparent corner carved at r + 2 so no lit pixel shows outside the outline |
 | 26 | v0.13.3 | One continuous card corner: the glass photo bakes the card's edge and highlight in along a true circular corner, and no outline polygon is drawn over a card that has a photo (this version) |
+
+</details>
