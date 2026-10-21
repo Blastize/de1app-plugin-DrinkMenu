@@ -1,7 +1,7 @@
 # Drink Menu
 
 **A visual espresso drink menu on the tablet: every drink drawn as a cup with its layers.**
-Version 1.18.8 · a plugin for the Decent DE1app · by Blastize
+Version 1.19.0 · a plugin for the Decent DE1app · by Blastize
 
 ![The menu: a grid of cups with coloured layers, tabs for hot, cold, milk, favorites and custom](docs/menu.png)
 
@@ -9,11 +9,11 @@ Version 1.18.8 · a plugin for the Decent DE1app · by Blastize
 
 ![Drink detail: the cup with labelled layers, totals, ratio and method](docs/detail.png)
 
-**Drink detail.** The layers labelled on the cup, the total and ratio, the method steps, one or two shots. Star it, hide it, or send its linked profile to the machine.
+**Drink detail.** The layers labelled on the cup, the total and ratio, the method steps, one or two shots. Star it or hide it.
 
-![The editor: vessel, layers, method, group and linked profile for a custom drink](docs/editor.png)
+![The editor: vessel, layers, method and group for a custom drink](docs/editor.png)
 
-**Custom drinks.** Pick a vessel, add and reorder layers, write the method, choose where it sits in the menu, link a profile.
+**Custom drinks.** Pick a vessel, add and reorder layers, write the method, choose where it sits in the menu.
 
 ![The Favorites tab: only the starred drinks](docs/favorites.png)
 
@@ -33,7 +33,7 @@ Copy the folder to `de1plus/plugins/DrinkMenu/` (including the three `<width>x<h
 
 ## Safety
 
-Drink Menu saves its own settings file (unit, favorites, hidden drinks, custom drinks). On a drink's page, **To machine** changes the app and the machine, on that one tap only: it selects the drink's linked profile (custom drinks) and sets the hot-water volume from the drink's hot water, then saves the app's settings and sends them to the machine through the app's own calls. If the drink's profile link is invalid or its file is missing, the whole tap is refused with a note and a log line: nothing is set, saved or sent. The tap is refused while the machine is busy and never starts a flow. No shot database or history access.
+Drink Menu writes only its own settings file (unit, favorites, hidden drinks, custom drinks). It only shows drinks: it never changes the app's settings or profile and never sends anything to the machine. No shot database or history access.
 
 <details>
 <summary><b>Full reference and version notes</b></summary>
@@ -47,7 +47,15 @@ custom drinks. Presets are read-only for the user. Since v0.11.0 the
 pages carry the design mock's own warm brown look, whatever skin theme
 is active.
 
-Author: **Blastize** - Current version: **1.18.8** (release prep: comments and docs)
+Author: **Blastize** - Current version: **1.19.0** (just a menu: To machine removed)
+
+## New in v1.19.0
+
+Drink Menu is a menu again, nothing more. The "To machine" button on a drink's page and the
+editor's "Profile" button are gone: the plugin never changes your profile, your hot water or
+anything else on the machine. Custom drinks you linked to a profile in an older version still
+open and save as before; the link is simply not used. In the editor, Method now takes the whole
+row.
 
 ## New in v1.18.8
 
@@ -112,7 +120,7 @@ Text is the size it was designed to be. On the tablet every title, name,
 amount and button was drawn about 8% small, because the plugin sized its
 fonts from the screen minus Android's bar; they now grow to their intended
 size (captions were already at their floor and stay). The menu's subtitle
-just counts the drinks ("46 espresso drinks") and the bottom bar says
+just counts the drinks ("43 espresso drinks", more with your own) and the bottom bar says
 "Page 1 of 4". Warnings are amber (the editor's status line, a drink over
 its cup's capacity) and an error is red ("Presets failed to load"). The
 vessel picker and the "Exceeds vessel by" message follow your ml/oz
@@ -815,27 +823,18 @@ defaults to 0 and logs nothing.
 - **presets.tcl is read-only data**; nothing mutates it at runtime, and
   the user can never edit or overwrite a preset -- editing one always
   creates a custom copy.
-- **The app and the machine, on one tap only** (since v1.10.0; the
-  descriptions before v1.18.3 left this out): the drink page's "To
-  machine" selects a custom drink's linked profile with the app's own
-  `select_profile`, sets `water_volume` from the drink's hot water
-  (10 to 250 ml), and a second later runs the app's `save_settings` (the
-  app's settings file) and `save_settings_to_de1` (the machine). Refused
-  while the machine is busy; never starts a flow. Because it goes
-  through `select_profile`, other plugins' profile hooks (Describe Your
-  Espresso, Graphical Flow Calibrator) run just as they do when you pick
-  the profile in the app.
-- **A profile link is checked first** (v1.18.3): it must be a plain
-  profile name, and its file must exist where the app will open it,
-  before `select_profile` is called. Otherwise the tap is refused with a
-  note and a log line, and nothing is set, saved or sent.
-- **Paths**: the plugin builds one data path itself, read-only: that
-  profile check (`[data_directory]/profiles/<name>.tcl`, or
-  `[homedir]/...` on cores without `data_directory`). Settings, profiles
-  and the app settings go through the app's own procs. It reads its own
-  `presets.tcl` and `bg.png` files next to `plugin.tcl`; card images are
-  made in memory. SDB is never opened, `history/` and `history_v2/` are
-  never read or written.
+- **Never the app or the machine** (since v1.19.0): Drink Menu only
+  shows drinks. It never selects a profile, never changes an app
+  setting such as the hot-water volume, never saves the app's settings
+  and never sends anything to the machine. (v1.10.0 to v1.18.8 had a
+  "To machine" button that did; it is removed.) A profile link saved
+  on a custom drink by one of those versions is ignored, and an
+  edit-save carries it unchanged; nothing rewrites it.
+- **Paths**: the plugin builds no data path of its own; its settings
+  go through the app's plugin settings procs. It reads its own
+  `presets.tcl` and `bg.png` files next to `plugin.tcl` and the app's
+  icon font; card images are made in memory. SDB is never opened,
+  `history/` and `history_v2/` are never read or written.
 - The Lumen skin is not modified.
 
 ## Install

@@ -11,24 +11,18 @@
 # dbutton relabel by BARE tag. Timing NOTICE lines are gated by
 # `debug_timing` (default 0).
 #
-# Writes, in two parts (corrected in v1.18.3; this said "the ONLY write
-# path" from v1.10.0 on, which understated part 2):
-#  1. Its own settings: `_persist` validates and then calls
-#     `plugins save_settings DrinkMenu` for four keys: unit, favorites,
-#     hidden (single-tap callers set_unit, toggle_favorite,
-#     toggle_hidden) and custom (three editor callers, each behind an
-#     explicit confirmation card: editor_save_custom, editor_save_copy,
-#     editor_delete_custom).
-#  2. The app and the machine, from the detail page's To machine button
-#     only (see "DE1 tie-ins" below): the core's select_profile for a
-#     custom drink's linked profile, ::settings(water_volume) from the
-#     drink's hot water, then the core's save_settings and
-#     save_settings_to_de1 one second later.
+# The ONLY write path (again, since v1.19.0, Pass 58: "To machine", the
+# v1.10.0 to v1.18.8 write to the app's profile / hot water and the
+# machine, is removed) is `_persist`, which validates and then calls
+# `plugins save_settings DrinkMenu` for four keys: unit, favorites,
+# hidden (single-tap callers set_unit, toggle_favorite, toggle_hidden)
+# and custom (three editor callers, each behind an explicit confirmation
+# card: editor_save_custom, editor_save_copy, editor_delete_custom).
 # Never from preload, main, setup, show, mode switches or keystrokes. No
-# SDB, no history files. It builds one data path itself, read-only: the
-# profile existence check (`_profile_file_exists`). Everything else goes
-# through core procs. It reads presets.tcl and the bg.png backgrounds
-# next to this file. The obsolete "overrides" settings key from Pass 5/6
+# app settings, no machine, no SDB, no history files, and no data path
+# of its own: its settings go through the core's plugin settings procs.
+# It reads presets.tcl and the bg.png backgrounds next to this file and
+# the app's icon font through dui. The obsolete "overrides" settings key from Pass 5/6
 # is dropped from memory on load if found on disk (see plugin.tcl);
 # presets can never be edited or overwritten by the user.
 #
@@ -590,8 +584,8 @@ namespace eval ::plugins::DrinkMenu {
     # The plugin's own settings write. Validates, then plugins
     # save_settings inside a catch. Six callers: set_unit,
     # toggle_favorite, toggle_hidden and the three confirm-carded editor
-    # actions (save custom, save as copy, delete custom). The app and the
-    # machine are written only by to_machine_tap (see the file header).
+    # actions (save custom, save as copy, delete custom). Since v1.19.0
+    # this is the plugin's only write of any kind (see the file header).
     proc _persist {reason} {
         _validate_settings
         if {[catch { plugins save_settings DrinkMenu } err]} {
@@ -661,7 +655,7 @@ namespace eval ::plugins::DrinkMenu {
     variable edit_loading 0
     variable edit_note ""
     # F21 (v1.18.0): the last edit_note that is a confirmation, not a
-    # warning ("Profile linked: X", "Profile link removed"). The editor's
+    # warning (the profile link's notes until v1.19.0). The editor's
     # status line wears c_ink_2 while it shows exactly this text, warn
     # otherwise; any other note text fails the equality, so no reset.
     variable edit_note_info ""
@@ -1119,189 +1113,13 @@ namespace eval ::plugins::DrinkMenu {
         return $d
     }
 
-    # ------------------------------------------------------------------
-    #  DE1 tie-ins (Pass 40)
-    # ------------------------------------------------------------------
-    # ONE explicit tap ("To machine" on the detail page) applies what the
-    # drink defines: its linked profile (custom drinks only, stamped in
-    # the editor) and/or the hot-water volume its hot_water layers ask
-    # for. NOTHING is automatic: no page load, show, event or timer
-    # touches the machine or the app's settings; the only timer is the
-    # 1 s debounce Lumen's own settings use, armed by the tap itself.
-    # Mechanisms are copied from proven code, not invented:
-    #   profile   ::select_profile <filename>   (old core vars.tcl:2932,
-    #             upstream vars.tcl:3092; the call DYE.tcl:1605 makes),
-    #             only after valid_profile_fn + _profile_file_exists
-    #             pass (Pass 52)
-    #   water     set ::settings(water_volume) N (clamped 10..250), then
-    #             debounced `save_settings; save_settings_to_de1` --
-    #             copied from the Lumen skin's hot-water controls
-    #   busy      connected and not Idle/Sleep/GoingToSleep refuses the
-    #             tap (DevBridge's guard, copied; fails closed)
-
-    # The hot-water amount a drink asks of the machine: the sum of its
-    # hot_water layers (pure; call with the SIZED drink).
-    proc drink_hot_water {drink} {
-        set total 0
-        foreach {ing ml} [dict get $drink layers] {
-            if {$ing eq "hot_water"} { set total [expr {$total + $ml}] }
-        }
-        return $total
-    }
-
-    # Clamped to the machine UI's own 10..250 range (Lumen's clamp); 0
-    # means "the drink asks for no hot water".
-    proc water_target {ml} {
-        if {![string is double -strict $ml] || $ml <= 0} { return 0 }
-        set n [expr {round(double($ml))}]
-        if {$n < 10} { set n 10 } elseif {$n > 250} { set n 250 }
-        return $n
-    }
-
-    # {filename title} when the drink carries a profile link, else {}.
-    proc drink_profile {drink} {
-        set fn ""
-        catch { set fn [string trim [dict get $drink profile_fn]] }
-        if {$fn eq ""} { return {} }
-        set title $fn
-        catch {
-            set t [string trim [dict get $drink profile_title]]
-            if {$t ne ""} { set title $t }
-        }
-        return [list $fn $title]
-    }
-
-    # Pass 52 (v1.18.3): a profile link must be a bare profile filename
-    # before the tap may use it: not empty, at most 128 chars, no path
-    # separator, not "." or "..", no control characters. Without a
-    # separator ".." can only be the whole name, so nothing can climb out
-    # of profiles/. Names with spaces, dots or a leading ~ stay valid.
-    proc valid_profile_fn {fn} {
-        if {$fn eq "" || [string length $fn] > 128} { return 0 }
-        if {$fn in {. ..}} { return 0 }
-        if {[string first / $fn] >= 0 || [string first "\\" $fn] >= 0} { return 0 }
-        if {[regexp {[[:cntrl:]]} $fn]} { return 0 }
-        return 1
-    }
-
-    # Writable user-data root. de1app main (since e14b7d0, 2026-06-23) has
-    # data_directory; older cores (stable v1.46.1, the tablet) have only homedir.
-    # Both return the same folder on Android/macOS today. No catch, never throws.
-    proc _data_root {} {
-        if {[llength [info commands ::data_directory]]} { return [::data_directory] }
-        if {[llength [info commands ::homedir]]}        { return [::homedir] }
-        variable plugin_dir    ;# headless tests only: <root>/plugins/<Name>
-        return [file dirname [file dirname $plugin_dir]]
-    }
-
-    # Does the linked profile's file exist where the core's select_profile
-    # will open it? The path is the core's own string form, copied
-    # (upstream vars.tcl:3100 data_directory, old core vars.tcl:2940
-    # homedir), never `file join`: Tcl 8.6 treats a leading ~ as absolute.
-    # Read-only: the one data path DrinkMenu builds itself.
-    proc _profile_file_exists {fn} {
-        if {![valid_profile_fn $fn]} { return 0 }
-        return [file exists "[_data_root]/profiles/${fn}.tcl"]
-    }
-
-    # DevBridge's busy guard, copied: "" while disconnected or resting,
-    # else the state name; fails closed on an unreadable state.
-    proc _machine_busy {} {
-        set handle unknown
-        catch { set handle $::de1(device_handle) }
-        if {$handle eq "0"} { return "" }
-        set name unknown
-        catch { set name $::de1_num_state($::de1(state)) }
-        if {$name in {Idle Sleep GoingToSleep}} { return "" }
-        return $name
-    }
-
-    variable mach_apply_id ""
-    variable mach_note_id ""
-
-    # Relabel the To-machine button with the outcome; a one-shot refresh
-    # puts the state label back (the refresh always rewrites it).
-    proc _machine_note {txt} {
-        variable mach_note_id
-        variable L
-        catch {
-            set px [expr {int($L(det_mach_w) * $L(v2px))} ]
-            dui item config DrinkMenu_detail det_mach -label \
-                [_fit_text $txt $L(font_button) [expr {$px - 20}]]
-        }
-        catch { after cancel $mach_note_id }
-        set mach_note_id [after 2200 ::plugins::DrinkMenu::_refresh_current]
-    }
-
-    # THE tap. Applies profile and/or water from the drink AS DISPLAYED
-    # (the sized drink), reports on the button, and persists + sends via
-    # the app's own procs, debounced exactly as Lumen does.
-    proc to_machine_tap {} {
-        variable detail_id
-        variable detail_size
-        variable mach_apply_id
-        set d0 [get_drink $detail_id]
-        if {$d0 eq ""} { return }
-        set d [sized_drink $d0 $detail_size]
-        set busy [_machine_busy]
-        if {$busy ne ""} {
-            _machine_note "[translate "Machine busy"]"
-            return
-        }
-        set done {}
-        lassign [drink_profile $d] fn title
-        if {$fn ne ""} {
-            # Pass 52: check the link BEFORE the core call. The core's
-            # select_profile resets the profile settings before its own
-            # file check, and a wrapper (the bundled Graphical Flow
-            # Calibrator) drops its -1, so a stale link must never reach
-            # it. Refusing sets, saves and sends nothing.
-            if {![valid_profile_fn $fn]} {
-                catch { msg -NOTICE "DrinkMenu: to machine refused, invalid profile link '[string range $fn 0 63]'" }
-                _machine_note [translate "Profile link invalid"]
-                return
-            }
-            if {![_profile_file_exists $fn]} {
-                catch { msg -NOTICE "DrinkMenu: to machine refused, profile file missing: '$fn'" }
-                _machine_note [translate "Profile file missing"]
-                return
-            }
-            set r ""
-            if {[catch { set r [::select_profile $fn] } err]} {
-                catch { msg -ERROR "DrinkMenu: select_profile '$fn' failed: $err" }
-                _machine_note [translate "Profile failed"]
-                return
-            }
-            if {$r eq "-1"} {
-                catch { msg -NOTICE "DrinkMenu: to machine stopped, the app reported profile '$fn' missing" }
-                _machine_note [translate "Profile file missing"]
-                return
-            }
-            lappend done [translate "Profile set"]
-        }
-        set w [water_target [drink_hot_water $d]]
-        if {$w > 0} {
-            if {[catch { set ::settings(water_volume) $w } err]} {
-                catch { msg -ERROR "DrinkMenu: could not set water volume: $err" }
-            } else {
-                lappend done "[translate "Water"] $w ml"
-            }
-        }
-        if {[llength $done] == 0} { return }
-        catch { after cancel $mach_apply_id }
-        set mach_apply_id [after 1000 {
-            if {[catch {
-                save_settings
-                save_settings_to_de1
-            } err]} {
-                catch { msg -ERROR "DrinkMenu: could not send the machine settings: $err" }
-            }
-        }]
-        catch { msg -NOTICE "DrinkMenu: to machine: [join $done {; }]" }
-        # F23 (v1.18.1): two outcomes are two facts, so a middle dot
-        # ("Profile set . Water 120 ml"), not a comma.
-        _machine_note [join $done " [::plugins::DrinkMenu::_u 0xB7] "]
-    }
+    # Pass 58 (v1.19.0): the DE1 tie-ins (Pass 40, "To machine": a drink's
+    # linked profile and hot water applied to the app and sent to the
+    # machine) are removed. Drink Menu only shows drinks; it never calls
+    # select_profile, save_settings or save_settings_to_de1 and never
+    # sets ::settings(water_volume). A legacy profile_fn / profile_title
+    # on a saved custom drink is ignored (and carried unchanged by an
+    # edit-save, see editor_open and _clean_draft).
 
     # Label column layout (pure). mids: canvas y of every layer's
     # mid-height, bottom layer first (so y decreases along the list).
@@ -2335,12 +2153,9 @@ namespace eval ::plugins::DrinkMenu {
         set L(det_fav_w)   [expr {int(round(260 * $scale))}]
         set L(det_hide_x1) [expr {$L(det_edit_x1) - $L(lg) - $L(det_hide_w)}]
         set L(det_fav_x1)  [expr {$L(det_hide_x1) - $L(lg) - $L(det_fav_w)}]
-        # Pass 40: the "To machine" tie-in button fills the bottom bar's
-        # one free stretch, between Back and Favorite, with sm clear of
-        # each (the bar is where the page's actions live).
-        set L(det_mach_x1) [expr {$L(left_x) + $L(btn_w_std) + $L(sm)}]
-        set L(det_mach_x2) [expr {$L(det_fav_x1) - $L(sm)}]
-        set L(det_mach_w)  [expr {$L(det_mach_x2) - $L(det_mach_x1)}]
+        # Pass 58 (v1.19.0): the stretch between Back and Favorite held the
+        # "To machine" button, now removed; it stays empty (most drinks
+        # never showed the button), so the bar keeps its v1.18 look.
 
         # Header: unit toggle then 1 shot|2 shots, right-aligned. Both
         # capsules are sized from their own labels in the "Header control
@@ -2633,12 +2448,13 @@ namespace eval ::plugins::DrinkMenu {
         # ed_rows_first, and "+ Add layer" is the only action below the
         # list: a wide ghost button that follows the last layer row
         # (moved at refresh, hidden once six layers are in).
+        # Pass 58 (v1.19.0): Profile is gone (no To machine), so Method
+        # takes the whole second header row, like Vessel + Group above.
         set L(ed_hdr2_y) [expr {$L(ed_rows_y0) + $L(ed_row_pitch)}]
         set L(ed_rows_first) 2
-        set L(ed_b2_w) [expr {($L(ed_col_w) - $L(sm)) / 2}]
         set L(ed_method_x1) $L(ed_col_x1)
-        set L(ed_method_x2) [expr {$L(ed_method_x1) + $L(ed_b2_w)}]
-        set L(ed_prof_x1) [expr {$L(ed_method_x2) + $L(sm)}]
+        set L(ed_method_x2) $L(ed_col_x2)
+        set L(ed_b2_w) [expr {$L(ed_method_x2) - $L(ed_method_x1)}]
         set L(ed_add_x2) [expr {$L(ed_col_x1) + $L(btn_w_wide)}]
         set L(ed_st_num_x) [expr {$L(ed_col_x1) + $L(card_pad_x)}]
         set L(ed_st_txt_x) [expr {$L(ed_st_num_x) + int(round(30 * $scale))}]
@@ -6284,7 +6100,7 @@ namespace eval ::plugins::DrinkMenu {
         if {$debug_timing} { t_log set_tab [expr {[clock microseconds] - $_t0}] }
     }
 
-    # Unit toggle (menu or detail). Persist caller 1 of 3.
+    # Unit toggle (menu or detail). Persist caller 1 of 6.
     proc set_unit {unit} {
         variable ui_unit
         variable settings
@@ -6296,7 +6112,7 @@ namespace eval ::plugins::DrinkMenu {
         _flash_seg unit [expr {$unit eq "oz" ? "r" : "l"}]
     }
 
-    # Favorite toggle (detail page button). Persist caller 2 of 3.
+    # Favorite toggle (detail page button). Persist caller 2 of 6.
     proc toggle_favorite {id} {
         variable drinks
         variable settings
@@ -6314,7 +6130,7 @@ namespace eval ::plugins::DrinkMenu {
         _refresh_current
     }
 
-    # Hide / unhide (detail page button). Persist caller 3 of 3. Then
+    # Hide / unhide (detail page button). Persist caller 3 of 6. Then
     # returns to the menu through the normal Back path; the menu's show
     # reloads the tab and clamps the page. Unhiding from the hidden view
     # stays there, or goes to All once nothing is hidden.
@@ -6531,6 +6347,8 @@ namespace eval ::plugins::DrinkMenu {
         if {![valid_group $grp]} { set grp custom }
         dict set edit_drink group $grp
         # Pass 40: a custom drink brings its profile link into the draft.
+        # Pass 58: nothing uses the link any more; it is only carried so
+        # an edit-save never drops a field the user once saved.
         catch {
             if {[dict exists $d profile_fn]} {
                 dict set edit_drink profile_fn [dict get $d profile_fn]
@@ -6645,44 +6463,6 @@ namespace eval ::plugins::DrinkMenu {
 
     proc edit_add_tap {} { edit_set_mode palette }
     proc edit_vessel_tap {} { edit_set_mode vessel }
-
-    # ---- Profile link (Pass 40) ----
-    # Toggles the draft's profile link: none -> stamp the app's CURRENT
-    # profile (dial it in first, then link it); linked -> clear. Rides
-    # the confirmed Save like every other draft field; touches no app
-    # setting itself.
-    proc edit_profile_toggle {} {
-        variable edit_drink
-        variable edit_dirty
-        variable edit_note
-        variable edit_note_info
-        _hide_keyboard
-        if {[drink_profile $edit_drink] ne {}} {
-            dict unset edit_drink profile_fn
-            dict unset edit_drink profile_title
-            set edit_dirty 1
-            set edit_note [translate "Profile link removed"]
-            set edit_note_info $edit_note
-        } else {
-            set fn ""
-            catch { set fn [string trim $::settings(profile_filename)] }
-            if {$fn eq ""} {
-                set edit_note [translate "No profile is selected in the app"]
-            } else {
-                set title $fn
-                catch {
-                    set t [string trim $::settings(profile_title)]
-                    if {$t ne ""} { set title $t }
-                }
-                dict set edit_drink profile_fn [string range $fn 0 127]
-                dict set edit_drink profile_title [string range $title 0 79]
-                set edit_dirty 1
-                set edit_note "[translate "Profile linked"]: $title"
-                set edit_note_info $edit_note
-            }
-        }
-        _refresh_editor
-    }
 
     # ---- Group mode (Pass 38) ----
     proc edit_group_tap {} { edit_set_mode group }
@@ -7048,7 +6828,8 @@ namespace eval ::plugins::DrinkMenu {
         catch { set grp [dict get $edit_drink group] }
         if {![valid_group $grp]} { set grp custom }
         dict set d group $grp
-        # Pass 40: and the profile link, when one is set (both keys or
+        # Pass 40: and the (legacy, unused since Pass 58) profile link,
+        # carried unchanged when one is set (both keys or
         # neither; lengths capped).
         set pfn ""
         catch { set pfn [string trim [dict get $edit_drink profile_fn]] }
@@ -8033,16 +7814,6 @@ namespace eval ::dui::pages::DrinkMenu_detail {
             dui add dtext $page $L(det_ratio_x) $L(det_tot_names2_y) -tags tot_names2 -text "" \
                 -font $L(font_caption) -fill $L(c_ink_2) -anchor w -justify left -initial_state hidden
             ::plugins::DrinkMenu::_theme_item $page tot_names2 fill c_ink_2
-            # Pass 40: the one DE1 tie-in button, on the bottom bar's
-            # free stretch between Back and Favorite; shown only for
-            # drinks that define something to apply (a linked profile
-            # and/or a hot_water layer). Ghost style: its static fill
-            # keeps the core press flash safe.
-            ::plugins::DrinkMenu::bar_button $page det_mach \
-                $L(det_mach_x1) $L(bar_y0) $L(det_mach_x2) $L(bar_y1) btn \
-                -label [translate "To machine"] \
-                -command ::plugins::DrinkMenu::to_machine_tap \
-                -label_font $L(font_button) -initial_state hidden
         } err]} {
             catch { msg -ERROR "DrinkMenu: detail totals setup failed: $err" }
         }
@@ -8290,19 +8061,6 @@ namespace eval ::dui::pages::DrinkMenu_detail {
         _set_text $page tot_names $names1
         _set_text $page tot_names2 $names2
         _show_tags $page tot_names2 [expr {$names2 ne ""}]
-        # Pass 40: show the tie-in button only when this drink defines
-        # something to apply; the refresh relabel also washes out a
-        # previous tap's outcome note.
-        set tie [expr {[::plugins::DrinkMenu::drink_profile $d] ne {} \
-            || [::plugins::DrinkMenu::water_target [::plugins::DrinkMenu::drink_hot_water $d]] > 0}]
-        _show_tags $page det_mach* $tie
-        if {$tie} {
-            # F8 (v1.18.0): fitted like the outcome notes (face - 20 px),
-            # so a longer translation shortens instead of spilling.
-            catch { dui item config $page det_mach -label \
-                [_fit_text [translate "To machine"] $L(font_button) \
-                    [expr {int($L(det_mach_w) * $L(v2px)) - 20}]] }
-        }
 
         # Ingredient chips. The card is a fixed two-row card since
         # Pass 14, so chip_fit does the wrapping and, only for a custom
@@ -8556,17 +8314,12 @@ namespace eval ::dui::pages::DrinkMenu_edit {
                 -command ${NS}::edit_group_tap \
                 -label_font $L(font_button)
             # Pass 48: second header row -- Method (step count, relabelled
-            # at refresh) and Profile -- so the action row below the list
-            # holds "+ Add layer" alone.
+            # at refresh) -- so the action row below the list holds
+            # "+ Add layer" alone. Pass 58: Method has the whole row.
             set hy $L(ed_hdr2_y)
             ${NS}::bar_button $page ed_method $L(ed_method_x1) $hy $L(ed_method_x2) [expr {$hy + $rh}] btn \
                 -label [translate "Method"] \
                 -command ${NS}::edit_method_tap \
-                -label_font $L(font_button)
-            # Pass 40: link/unlink the app's CURRENT profile to the draft.
-            ${NS}::bar_button $page ed_profile_btn $L(ed_prof_x1) $hy $cx2 [expr {$hy + $rh}] btn \
-                -label [translate "Profile"] \
-                -command ${NS}::edit_profile_toggle \
                 -label_font $L(font_button)
             for {set i 0} {$i < $L(ed_row_pool)} {incr i} {
                 set ry [expr {$y0 + ($i + $L(ed_rows_first)) * $rp}]
@@ -9017,7 +8770,7 @@ namespace eval ::dui::pages::DrinkMenu_edit {
         set tags {}
         switch -- $mode {
             layers {
-                lappend tags ed_vessel_btn* ed_group_btn* ed_add* ed_method* ed_profile_btn*
+                lappend tags ed_vessel_btn* ed_group_btn* ed_add* ed_method*
                 for {set i 0} {$i < $L(ed_row_pool)} {incr i} { lappend tags {*}[_row_tags $i] }
             }
             group {
@@ -9264,13 +9017,6 @@ namespace eval ::dui::pages::DrinkMenu_edit {
             catch { set grp [dict get $d group] }
             catch { dui item config $page ed_group_btn -label \
                 "[translate "Group"]: [translate [${NS}::group_label $grp]]" }
-            # Pass 40: the profile button says whether the draft is linked.
-            if {[${NS}::drink_profile $d] ne {}} {
-                set prof_lbl [translate "Profile: linked"]
-            } else {
-                set prof_lbl [translate "Profile: none"]
-            }
-            catch { dui item config $page ed_profile_btn -label $prof_lbl }
         }
 
         if {$mode eq "group"} {

@@ -558,24 +558,24 @@
 # v1.18.8 (Pass 57): release prep for de1app PR #372; comments and docs
 # only, no behaviour change.
 #
-# SAFETY STATUS (two parts; the "writes ONLY its own settings.tdb" line
-# this replaced was wrong from v1.10.0 on):
-# 1. Its own settings file, through `plugins save_settings`: only the
-#    keys unit / favorites / hidden / custom, through DrinkMenu.tcl's
-#    single `_persist` proc (validated, inside a catch). Six callers:
-#    three single taps (unit toggle, Favorite, Hide/Unhide) and three
-#    editor actions each behind an explicit confirmation card (save
-#    custom, save as copy, delete custom).
-# 2. The app and the machine, on ONE explicit tap of the detail page's
-#    To machine only: the core's select_profile for a custom drink's
-#    linked profile (only when that profile's file exists),
-#    ::settings(water_volume) from the drink's hot water (10..250 ml),
-#    then the core's save_settings (the app's settings file) and
-#    save_settings_to_de1 (the machine) one second later. Refused while
-#    the machine is busy; never starts a flow.
-# Nothing is written on load, show, navigation, mode switches or
-# keystrokes. SDB is never opened, history/ and history_v2/ are never
-# read, written, renamed or deleted.
+# v1.19.0 (Pass 58, owner 2026-10-22: "just a menu with customizable
+# drinks"): "To machine" (v1.10.0 to v1.18.8: a drink's linked profile and
+# hot water applied to the app and sent to the machine) and the editor's
+# profile link are REMOVED. A legacy profile_fn / profile_title on a saved
+# custom drink is ignored and never rewritten. Description back to the
+# truth: it only shows drinks.
+#
+# SAFETY STATUS: writes ONLY its own settings file, through `plugins
+# save_settings`: the keys unit / favorites / hidden / custom, through
+# DrinkMenu.tcl's single `_persist` proc (validated, inside a catch). Six
+# callers: three single taps (unit toggle, Favorite, Hide/Unhide) and
+# three editor actions each behind an explicit confirmation card (save
+# custom, save as copy, delete custom). It never changes the app's
+# settings or profile and never talks to the machine (no select_profile,
+# save_settings, save_settings_to_de1 or ::settings write). Nothing is
+# written on load, show, navigation, mode switches or keystrokes. SDB is
+# never opened, history/ and history_v2/ are never read, written, renamed
+# or deleted.
 #
 # Manifest order matters: metadata first, so a failure anywhere below can
 # never leave the plugin without a version (the core drops a peeked plugin
@@ -591,9 +591,9 @@ namespace eval ::plugins::DrinkMenu {
     variable author      "Blastize"
     variable contact     "n/a"
     # Bare number, no "v" prefix (the core's startup log prepends one).
-    variable version     "1.18.8"
+    variable version     "1.19.0"
     variable name        "Drink Menu"
-    variable description "Espresso drinks drawn as cups; favorites and custom drinks. Tapping To machine sets the drink's linked profile and hot water and sends them to the machine."
+    variable description "A menu of espresso drinks drawn as cups, with favorites and your own custom drinks. It only shows drinks and never changes the machine's settings."
 
     # ---- Settings defaults ----
     # Each key is set only if missing: the plugin framework creates this
@@ -648,6 +648,6 @@ proc ::plugins::DrinkMenu::preload {} {
 
 # Called by the framework when the plugin is enabled / on startup.
 proc ::plugins::DrinkMenu::main {} {
-    catch { msg "DrinkMenu: started v$::plugins::DrinkMenu::version (menu + detail + favorites/hide + editor; presets are read-only, editing one makes a custom copy; saves unit/favorites/hidden on tap and custom drinks after confirmation to its own settings; To machine, one tap only, selects the linked profile if its file exists, sets water_volume and sends the app settings to the machine)" }
+    catch { msg "DrinkMenu: started v$::plugins::DrinkMenu::version (menu + detail + favorites/hide + editor; presets are read-only, editing one makes a custom copy; saves unit/favorites/hidden on tap and custom drinks after confirmation to its own settings file; never changes the app's settings or the machine)" }
     return
 }

@@ -4,6 +4,25 @@ Entries follow the CLAUDE.md doc cap (about 15 lines; write-capability
 passes documented in full). The long pre-trim entries for v0.1.0 to
 v0.13.2 survive in the Desktop archive snapshot of each version.
 
+## v1.19.0 - 2026-10-22 - Pass 58: To machine removed - Drink Menu only shows drinks - TABLET-VERIFIED 00:26 (verify.sh PASS run 1; menu and detail pixel-identical to 1.18.8, editor changes only in the Method row; Extensions description screenshot: 3 lines)
+
+Base: v1.18.8 (on the tablet). Protocol lane; minor: REMOVES the app/machine write path. Owner
+2026-10-22: "just a menu with customizable drinks".
+- Removed: the detail page's "To machine" button and `to_machine_tap` (select_profile for a linked
+  profile, `::settings(water_volume)`, then save_settings + save_settings_to_de1), its helpers
+  (drink_hot_water, water_target, drink_profile, valid_profile_fn, _data_root, _profile_file_exists,
+  _machine_busy, _machine_note) and layout; the editor's "Profile: none/linked" button
+  (`edit_profile_toggle`). Method takes the editor's whole second row; the detail bar keeps its look.
+- A legacy `profile_fn` / `profile_title` on a saved custom drink loads, shows and re-saves unchanged
+  (ignored; never rewritten). Comments: `_persist` callers 1-3 "of 6"; README's "46" -> 43.
+  Description: "A menu of espresso drinks drawn as cups, with favorites
+  and your own custom drinks. It only shows drinks and never changes the machine's settings."
+- Tests: pass_58_offline.tcl 7 passed (v1.18.8 fails 4); geometry_check TIEIN -> NOMACHINE (524);
+  pass_50/51 report their To machine cases as INFO (34 / 12); pass_52 retired; 53 14, 54 8, 56 8.
+- Safety status: writes ONLY its own settings file (`_persist` / `plugins save_settings`, six
+  callers). It never calls select_profile, the app's save_settings or save_settings_to_de1 and never
+  writes ::settings (static greps, count 0). No SDB, history or other file access.
+
 ## v1.18.8 - 2026-10-21 - Pass 57: release prep for de1app PR #372 (comments and docs only) - TABLET-VERIFIED 16:35 (verify.sh PASS run 1; pages pixel-identical to 1.18.3, clean boot log)
 
 Base: v1.18.7 (on the tablet). Polish/docs; patch. Owner 2026-10-21: prep the release; workspace =
