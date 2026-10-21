@@ -11,16 +11,26 @@
 # dbutton relabel by BARE tag. Timing NOTICE lines are gated by
 # `debug_timing` (default 0).
 #
-# The ONLY write path is `_persist`, which validates and then calls
-# `plugins save_settings DrinkMenu` for four keys: unit, favorites,
-# hidden (single-tap callers set_unit, toggle_favorite, toggle_hidden)
-# and custom (three editor callers, each behind an explicit confirmation
-# card: editor_save_custom, editor_save_copy, editor_delete_custom).
+# Writes, in two parts (corrected in v1.18.3; this said "the ONLY write
+# path" from v1.10.0 on, which understated part 2):
+#  1. Its own settings: `_persist` validates and then calls
+#     `plugins save_settings DrinkMenu` for four keys: unit, favorites,
+#     hidden (single-tap callers set_unit, toggle_favorite,
+#     toggle_hidden) and custom (three editor callers, each behind an
+#     explicit confirmation card: editor_save_custom, editor_save_copy,
+#     editor_delete_custom).
+#  2. The app and the machine, from the detail page's To machine button
+#     only (see "DE1 tie-ins" below): the core's select_profile for a
+#     custom drink's linked profile, ::settings(water_volume) from the
+#     drink's hot water, then the core's save_settings and
+#     save_settings_to_de1 one second later.
 # Never from preload, main, setup, show, mode switches or keystrokes. No
-# SDB, no history files, no other file I/O beyond sourcing presets.tcl
-# (read-only data next to this file). The obsolete "overrides" settings
-# key from Pass 5/6 is dropped from memory on load if found on disk (see
-# plugin.tcl); presets can never be edited or overwritten by the user.
+# SDB, no history files. It builds one data path itself, read-only: the
+# profile existence check (`_profile_file_exists`). Everything else goes
+# through core procs. It reads presets.tcl and the bg.png backgrounds
+# next to this file. The obsolete "overrides" settings key from Pass 5/6
+# is dropped from memory on load if found on disk (see plugin.tcl);
+# presets can never be edited or overwritten by the user.
 #
 # One scale source (ShotHistoryEditor v0.3.2 lesson; F8, v1.18.0):
 #   - COORDINATES are virtual (the core's ::dui::_base_screen_width x
@@ -577,8 +587,11 @@ namespace eval ::plugins::DrinkMenu {
         return $fixes
     }
 
-    # THE write path. Validates, then plugins save_settings inside a
-    # catch. Three callers only: set_unit, toggle_favorite, toggle_hidden.
+    # The plugin's own settings write. Validates, then plugins
+    # save_settings inside a catch. Six callers: set_unit,
+    # toggle_favorite, toggle_hidden and the three confirm-carded editor
+    # actions (save custom, save as copy, delete custom). The app and the
+    # machine are written only by to_machine_tap (see the file header).
     proc _persist {reason} {
         _validate_settings
         if {[catch { plugins save_settings DrinkMenu } err]} {
@@ -1116,11 +1129,13 @@ namespace eval ::plugins::DrinkMenu {
     # touches the machine or the app's settings; the only timer is the
     # 1 s debounce Lumen's own settings use, armed by the tap itself.
     # Mechanisms are copied from proven code, not invented:
-    #   profile   ::select_profile <filename>   (core vars.tcl:2932; the
-    #             call DYE.tcl:1605 makes)
+    #   profile   ::select_profile <filename>   (old core vars.tcl:2932,
+    #             upstream vars.tcl:3092; the call DYE.tcl:1605 makes),
+    #             only after valid_profile_fn + _profile_file_exists
+    #             pass (Pass 52)
     #   water     set ::settings(water_volume) N (clamped 10..250), then
     #             debounced `save_settings; save_settings_to_de1` --
-    #             Lumen skin.tcl:2816/2685, copied
+    #             copied from the Lumen skin's hot-water controls
     #   busy      connected and not Idle/Sleep/GoingToSleep refuses the
     #             tap (DevBridge's guard, copied; fails closed)
 
@@ -1154,6 +1169,39 @@ namespace eval ::plugins::DrinkMenu {
             if {$t ne ""} { set title $t }
         }
         return [list $fn $title]
+    }
+
+    # Pass 52 (v1.18.3): a profile link must be a bare profile filename
+    # before the tap may use it: not empty, at most 128 chars, no path
+    # separator, not "." or "..", no control characters. Without a
+    # separator ".." can only be the whole name, so nothing can climb out
+    # of profiles/. Names with spaces, dots or a leading ~ stay valid.
+    proc valid_profile_fn {fn} {
+        if {$fn eq "" || [string length $fn] > 128} { return 0 }
+        if {$fn in {. ..}} { return 0 }
+        if {[string first / $fn] >= 0 || [string first "\\" $fn] >= 0} { return 0 }
+        if {[regexp {[[:cntrl:]]} $fn]} { return 0 }
+        return 1
+    }
+
+    # Writable user-data root. de1app main (since e14b7d0, 2026-06-23) has
+    # data_directory; older cores (stable v1.46.1, the tablet) have only homedir.
+    # Both return the same folder on Android/macOS today. No catch, never throws.
+    proc _data_root {} {
+        if {[llength [info commands ::data_directory]]} { return [::data_directory] }
+        if {[llength [info commands ::homedir]]}        { return [::homedir] }
+        variable plugin_dir    ;# headless tests only: <root>/plugins/<Name>
+        return [file dirname [file dirname $plugin_dir]]
+    }
+
+    # Does the linked profile's file exist where the core's select_profile
+    # will open it? The path is the core's own string form, copied
+    # (upstream vars.tcl:3100 data_directory, old core vars.tcl:2940
+    # homedir), never `file join`: Tcl 8.6 treats a leading ~ as absolute.
+    # Read-only: the one data path DrinkMenu builds itself.
+    proc _profile_file_exists {fn} {
+        if {![valid_profile_fn $fn]} { return 0 }
+        return [file exists "[_data_root]/profiles/${fn}.tcl"]
     }
 
     # DevBridge's busy guard, copied: "" while disconnected or resting,
@@ -1203,6 +1251,21 @@ namespace eval ::plugins::DrinkMenu {
         set done {}
         lassign [drink_profile $d] fn title
         if {$fn ne ""} {
+            # Pass 52: check the link BEFORE the core call. The core's
+            # select_profile resets the profile settings before its own
+            # file check, and a wrapper (the bundled Graphical Flow
+            # Calibrator) drops its -1, so a stale link must never reach
+            # it. Refusing sets, saves and sends nothing.
+            if {![valid_profile_fn $fn]} {
+                catch { msg -NOTICE "DrinkMenu: to machine refused, invalid profile link '[string range $fn 0 63]'" }
+                _machine_note [translate "Profile link invalid"]
+                return
+            }
+            if {![_profile_file_exists $fn]} {
+                catch { msg -NOTICE "DrinkMenu: to machine refused, profile file missing: '$fn'" }
+                _machine_note [translate "Profile file missing"]
+                return
+            }
             set r ""
             if {[catch { set r [::select_profile $fn] } err]} {
                 catch { msg -ERROR "DrinkMenu: select_profile '$fn' failed: $err" }
@@ -1210,6 +1273,7 @@ namespace eval ::plugins::DrinkMenu {
                 return
             }
             if {$r eq "-1"} {
+                catch { msg -NOTICE "DrinkMenu: to machine stopped, the app reported profile '$fn' missing" }
                 _machine_note [translate "Profile file missing"]
                 return
             }
@@ -3084,6 +3148,265 @@ namespace eval ::plugins::DrinkMenu {
         set mark_n 0
         set mark_bytes 0
         set mark_ms 0
+        # Pass 53: the first-open queues too (lazy_paint itself is kept:
+        # the headless net pins it).
+        variable glass_pending
+        variable glass_page_keys
+        variable cup_pending
+        variable first_painted
+        variable pending_photo
+        variable paint_wait
+        variable eager_setup
+        array unset paint_wait
+        array set paint_wait {}
+        array unset eager_setup
+        array set eager_setup {}
+        array unset glass_pending
+        array set glass_pending {}
+        array unset glass_page_keys
+        array set glass_page_keys {}
+        array unset cup_pending
+        array set cup_pending {}
+        array unset first_painted
+        array set first_painted {}
+        set pending_photo ""
+    }
+
+    # ---- Pass 53 (v1.18.4): card photos and cup sprites on first open ----
+    #
+    # Until v1.18.3 the three page setups painted every card photo and the
+    # seed cups' sprite pairs at app start (~2.3 s and ~5.9 MB on the
+    # tablet), whether or not the menu was ever opened. Now, once a 2x2
+    # PNG probe passes, setup puts those image items on EMPTY photos and
+    # records them per page; the page's first paint (_paint, from its F22
+    # load, before the page appears) paints them. A card photo is filled
+    # under its final name -- `image create photo` on an existing name
+    # refills it in place and every item showing it redraws -- and a cup's
+    # items get their pair's photo and coords, as update_cup gives them.
+    # A refused probe keeps the old setup path exactly. The mark sprites
+    # (116 ms, 23 KB) stay at setup: they decide star_mode / dot_mode,
+    # which picks the items setup creates.
+    # "" = not probed yet. Kept across a re-source of this file, so the
+    # headless net's pin (0) survives its manifest reload.
+    variable lazy_paint
+    if {![info exists lazy_paint]} { set lazy_paint "" }
+    variable glass_pending
+    array set glass_pending {}
+    variable glass_page_keys
+    array set glass_page_keys {}
+    variable cup_pending
+    array set cup_pending {}
+    variable first_painted
+    array set first_painted {}
+    variable pending_photo ""
+    # page -> 1 while its cups wait for its first paint (set by setup)
+    variable paint_wait
+    array set paint_wait {}
+
+    proc _paint_waits {page} {
+        variable paint_wait
+        return [info exists paint_wait($page)]
+    }
+
+    # Pass 54: page -> 1 when dui sets the page up inside its first show
+    # (the plugin was enabled mid-session): no _paint follows that setup,
+    # so it paints at setup (see _page_load).
+    variable eager_setup
+    array set eager_setup {}
+
+    # Setup's choice for $page: wait for the first paint (1) or paint now.
+    proc _lazy_for {page} {
+        variable eager_setup
+        if {[info exists eager_setup($page)]} { return 0 }
+        return [_lazy]
+    }
+
+    # Whether $page's photos were left for its first paint (no probing).
+    proc _lazy_on {page} {
+        variable lazy_paint
+        variable eager_setup
+        return [expr {$lazy_paint eq "1" && ![info exists eager_setup($page)]}]
+    }
+
+    # Setup-time mode at app start: every page painted in its setup, so
+    # the cumulative card / cup totals are whole (glass_log, cup_log).
+    proc _all_set_up_at_start {} {
+        variable eager_setup
+        return [expr {![_lazy_on DrinkMenu_main] && [array size eager_setup] == 0}]
+    }
+
+    # 1 when the platform takes a PNG photo (probed once), so painting can
+    # wait for the first open; 0 paints at setup as before.
+    proc _lazy {} {
+        variable lazy_paint
+        if {$lazy_paint ne ""} { return $lazy_paint }
+        set lazy_paint 0
+        set row [binary format c* {0 0 0 0 0 0 0 0}]
+        if {[catch {
+            set p [::image create photo -data [png_encode 2 2 [list $row $row]]]
+            ::image delete $p
+        } err]} {
+            catch { msg -NOTICE "DrinkMenu: PNG probe refused ($err); card photos and cup sprites paint at page setup" }
+            return 0
+        }
+        set lazy_paint 1
+        return 1
+    }
+
+    # The one empty photo cup items wait on (shows nothing).
+    proc _pending_photo {} {
+        variable pending_photo
+        if {$pending_photo eq ""} { set pending_photo [::image create photo dm_pending] }
+        return $pending_photo
+    }
+
+    # glass_card's lazy branch: the empty photo under the card's final
+    # name, its shadow margin S recorded now (the item is placed for it),
+    # the paint queued for $page. Same guards and key as glass_photo.
+    proc _glass_defer {page w h r kind S dy} {
+        variable glass_photos
+        variable glass_pending
+        variable glass_page_keys
+        variable glass_margin
+        variable mock_glass_kinds
+        if {$w < 2 || $h < 2} { return "" }
+        if {![dict exists $mock_glass_kinds $kind]} { set kind card }
+        set key "${w}x${h}x${r}x${kind}"
+        if {[info exists glass_photos($key)]} { return $glass_photos($key) }
+        set img "dm_glass_$key"
+        if {![info exists glass_pending($key)]} {
+            if {[catch { ::image create photo $img } err]} {
+                catch { msg -NOTICE "DrinkMenu: empty photo $key refused ($err); painting it now" }
+                return [glass_photo $w $h $r $kind $S $dy]
+            }
+            set glass_pending($key) [list $w $h $r $kind $S $dy]
+            set glass_margin($img) $S
+        }
+        if {![info exists glass_page_keys($page)] || $key ni $glass_page_keys($page)} {
+            lappend glass_page_keys($page) $key
+        }
+        return $img
+    }
+
+    # Paints the card photos $page waits on (a photo another page already
+    # painted is skipped). A PNG refused now leaves glass_photo's put
+    # photo, which has no margin: it is padded into the S px margin its
+    # items were placed for.
+    proc _glass_paint_page {page} {
+        variable glass_pending
+        variable glass_page_keys
+        variable glass_margin
+        if {![info exists glass_page_keys($page)]} { return }
+        foreach key $glass_page_keys($page) {
+            if {![info exists glass_pending($key)]} { continue }
+            lassign $glass_pending($key) w h r kind S dy
+            unset glass_pending($key)
+            set img [glass_photo $w $h $r $kind $S $dy]
+            if {$img eq ""} {
+                # Both painters refused (Tk would not even make a blank
+                # photo): its cards stay faceless; the flat fallback is a
+                # setup-time choice. Logged so it is never silent.
+                catch { msg -NOTICE "DrinkMenu: card photo $key could not be made on $page; its cards show no face" }
+            } elseif {$S > 0 && [info exists glass_margin($img)] && $glass_margin($img) == 0} {
+                _glass_pad $img $w $h $S
+            }
+        }
+        unset glass_page_keys($page)
+    }
+
+    proc _glass_pad {img w h S} {
+        variable glass_margin
+        if {[catch {
+            set tmp [::image create photo -width $w -height $h]
+            $tmp copy $img
+            $img blank
+            $img configure -width [expr {$w + 2 * $S}] -height [expr {$h + 2 * $S}]
+            $img copy $tmp -to $S $S
+            ::image delete $tmp
+        } err]} {
+            catch { msg -NOTICE "DrinkMenu: could not pad the flat-corner photo $img ($err)" }
+            return
+        }
+        set glass_margin($img) $S
+    }
+
+    # Gives a cup drawn on the empty photo its sprite pair: the photos and
+    # the coords update_cup would set, nothing else (visibility stays the
+    # page's). A refused pair hands the cup to update_cup (Pass 55), which
+    # shows the canvas shadow, handle and stroke and inks the stem.
+    proc _cup_fill {page tag} {
+        variable cups
+        dict set cups($tag) pending 0
+        set r [_cup_render $tag [dict get $cups($tag) drink]]
+        set sp [cup_sprites $r]
+        if {$sp eq ""} {
+            # Pass 55: a refused pair -- update_cup's own fallback (canvas
+            # shadow, handle and stroke, an inked stem), for the same drink.
+            update_cup $page $tag [dict get $cups($tag) drink]
+            return
+        }
+        lassign $sp fg fx fy bg bx by
+        lassign [dict get $r origin] ox oy
+        set can [dui canvas]
+        foreach id [_ids $page ${tag}_shb] {
+            $can coords $id [expr {$ox + $bx}] [expr {$oy + $by}]
+            $can itemconfigure $id -image $bg
+        }
+        foreach id [_ids $page ${tag}_fg] {
+            $can coords $id [expr {$ox + $fx}] [expr {$oy + $fy}]
+            $can itemconfigure $id -image $fg
+        }
+        dict set cups($tag) use_sp 1
+    }
+
+    # Fills the cups of $page still on the empty photo that are VISIBLE
+    # now (update_cup already filled the ones a refresh showed). Hidden
+    # ones -- unused tile slots, the editor's vessel picker outside its
+    # mode -- wait for the refresh that shows them.
+    proc _cup_fill_pending {page} {
+        variable cup_pending
+        variable cups
+        if {![info exists cup_pending($page)] || [_paint_waits $page]} { return }
+        set can ""
+        catch { set can [dui canvas] }
+        if {$can eq ""} { return }
+        set left {}
+        foreach tag $cup_pending($page) {
+            if {![info exists cups($tag)] || ![dict exists $cups($tag) pending]
+                    || ![dict get $cups($tag) pending]} { continue }
+            set id [lindex [_ids $page ${tag}_fg] 0]
+            if {$id eq "" || "st:hidden" in [$can gettags $id]} {
+                lappend left $tag
+                continue
+            }
+            _cup_fill $page $tag
+        }
+        if {[llength $left]} { set cup_pending($page) $left } else { unset cup_pending($page) }
+    }
+
+    # One NOTICE per page, after its first paint in lazy mode: what that
+    # open painted and how long the whole repaint took.
+    proc _first_paint_mark {} {
+        variable glass_n
+        variable glass_bytes
+        variable cup_n
+        variable cup_bytes
+        return [list $glass_n $glass_bytes $cup_n $cup_bytes [clock microseconds]]
+    }
+    proc _first_paint_log {page mark} {
+        variable lazy_paint
+        variable first_painted
+        variable glass_n
+        variable glass_bytes
+        variable cup_n
+        variable cup_bytes
+        if {![_lazy_on $page] || [info exists first_painted($page)]} { return }
+        set first_painted($page) 1
+        lassign $mark g0 gb0 c0 cb0 t0
+        catch { msg -NOTICE [format "DrinkMenu: first open of %s painted card photos %d, cup sprites %d, %.2f MB, in %.0f ms" \
+            $page [expr {$glass_n - $g0}] [expr {$cup_n - $c0}] \
+            [expr {($glass_bytes - $gb0 + $cup_bytes - $cb0) / 1048576.0}] \
+            [expr {([clock microseconds] - $t0) / 1000.0}]] }
     }
 
     # The photo for a w x h card with a drawn corner radius r, ALL IN
@@ -3383,7 +3706,10 @@ namespace eval ::plugins::DrinkMenu {
         variable glass_png_n
         variable glass_bytes
         variable glass_ms
-        if {$glass_logged || $glass_n == 0} { return }
+        # Pass 55: logged only when app start painted every page (setup-time
+        # mode). A lazy menu or a menu set up inside its first show (enabled
+        # mid-session) has painted only its own photos by now: partial.
+        if {$glass_logged || $glass_n == 0 || ![_all_set_up_at_start]} { return }
         set glass_logged 1
         catch { msg -NOTICE [format "DrinkMenu: %d card photos (%d png with shadow), %.2f MB, painted in %.0f ms" \
             $glass_n $glass_png_n [expr {$glass_bytes / 1048576.0}] $glass_ms] }
@@ -3533,7 +3859,12 @@ namespace eval ::plugins::DrinkMenu {
             # Pass 42: the shadow margin and offset, physical too.
             set ps [dui::platform::rescale_x $L(shadow_m)]
             set pdy [dui::platform::rescale_y $L(shadow_dy)]
-            set img [glass_photo $pw $ph $pr $kind $ps $pdy]
+            # Pass 53: painted at the page's first open, not here.
+            if {$ps > 0 && [_lazy_for $page]} {
+                set img [_glass_defer $page $pw $ph $pr $kind $ps $pdy]
+            } else {
+                set img [glass_photo $pw $ph $pr $kind $ps $pdy]
+            }
         }
         if {$img ne ""} {
             # Pass 42: a PNG photo carries S px of shadow margin on every
@@ -4922,7 +5253,7 @@ namespace eval ::plugins::DrinkMenu {
         variable cup_n
         variable cup_bytes
         variable cup_ms
-        if {$cup_logged || $cup_n == 0} { return }
+        if {$cup_logged || $cup_n == 0 || ![_all_set_up_at_start]} { return }
         set cup_logged 1
         catch { msg -NOTICE [format "DrinkMenu: %d cup sprites (%d vessel/size pairs), %.0f KB, painted in %.0f ms" \
             $cup_n [expr {$cup_n / 2}] [expr {$cup_bytes / 1024.0}] $cup_ms] }
@@ -5212,7 +5543,11 @@ namespace eval ::plugins::DrinkMenu {
         variable mark_n
         variable mark_bytes
         variable mark_ms
-        if {$mark_logged || $mark_n == 0} { return }
+        variable eager_setup
+        # Pass 56: a page set up inside its first show (mid-session enable)
+        # paints its marks there, so the totals at the menu's show are
+        # partial. Marks always paint at setup, so a lazy boot's are whole.
+        if {$mark_logged || $mark_n == 0 || [array size eager_setup] > 0} { return }
         set mark_logged 1
         catch { msg -NOTICE [format "DrinkMenu: %d mark sprites (star faces, dots), %.0f KB, painted in %.0f ms" \
             $mark_n [expr {$mark_bytes / 1024.0}] $mark_ms] }
@@ -5332,7 +5667,21 @@ namespace eval ::plugins::DrinkMenu {
         # polygon are created hidden -- the fallback for a refused PNG --
         # and the stem polygon draws no ink outline (the sprite does).
         set r [_cup_render $tag $drink]
-        set sp [cup_sprites $r]
+        if {[_lazy_for $page]} {
+            # Pass 53: the pair is painted at the page's first open; until
+            # then both items sit on the empty photo (_cup_fill_pending).
+            variable cup_pending
+            variable paint_wait
+            set e [_pending_photo]
+            set sp [list $e 0 0 $e 0 0]
+            dict set cups($tag) pending 1
+            set paint_wait($page) 1
+            if {![info exists cup_pending($page)] || $tag ni $cup_pending($page)} {
+                lappend cup_pending($page) $tag
+            }
+        } else {
+            set sp [cup_sprites $r]
+        }
         set smode [expr {$sp ne "" ? 1 : 0}]
         dict set cups($tag) sprite $smode
         if {$smode} {
@@ -5449,7 +5798,16 @@ namespace eval ::plugins::DrinkMenu {
         set smode 0
         catch { set smode [dict get $cups($tag) sprite] }
         set sp ""
-        if {$smode} { set sp [cup_sprites $r] }
+        # Pass 53: before its page's first paint (the menu setup's own
+        # refresh) the cup keeps the empty photo; that paint sets the pair.
+        set wait [expr {$smode && [_paint_waits $page]}]
+        dict set cups($tag) pending $wait
+        if {$wait} {
+            set e [_pending_photo]
+            set sp [list $e 0 0 $e 0 0]
+        } elseif {$smode} {
+            set sp [cup_sprites $r]
+        }
         set use_sp [expr {$sp ne "" ? 1 : 0}]
         # Pass 46: remembered per cup, so update_hero_ring_dim knows
         # whether the stroke sprite (which carries the dim) is on screen.
@@ -6800,9 +7158,17 @@ namespace eval ::plugins::DrinkMenu {
     proc _paint {page} {
         variable painted_at
         unset -nocomplain painted_at($page)
+        # Pass 53: the card photos this page waits on, before the refresh;
+        # its visible cups still on the empty photo, after it.
+        variable paint_wait
+        unset -nocomplain paint_wait($page)
+        set mark [_first_paint_mark]
+        _glass_paint_page $page
         _apply_palette
         _retheme $page
         ::dui::pages::${page}::refresh
+        _cup_fill_pending $page
+        _first_paint_log $page $mark
         set painted_at($page) [clock milliseconds]
     }
 
@@ -6836,9 +7202,17 @@ namespace eval ::plugins::DrinkMenu {
     # redirects it). Known trade-off (review): the first open of a vessel in
     # a session builds its cup sprites here, so that tap waits ~0.3 s on the
     # tablet before the page switches (it used to switch at once and show
-    # the previous drink for the same time).
+    # the previous drink for the same time). Since Pass 53 a page's FIRST
+    # open in a session also paints its card photos here (_paint).
     proc _page_load {page} {
-        if {![dui page is_setup $page]} { return 1 }
+        if {![dui page is_setup $page]} {
+            # Pass 54: a plugin enabled mid-session is set up by dui's own
+            # page show AFTER this returns (dui.tcl ~6621), and no _paint
+            # follows; that setup paints its photos itself, as v1.18.3 did.
+            variable eager_setup
+            set eager_setup($page) 1
+            return 1
+        }
         if {[catch { _paint $page } err]} {
             catch { msg -ERROR "DrinkMenu: $page load repaint failed: $err" }
         }
@@ -8776,11 +9150,19 @@ namespace eval ::dui::pages::DrinkMenu_edit {
         if {$mode eq "vessel"} {
             # F21 (v1.18.0): each tile's capacity in the current unit
             # ("200 ml" / "6.8 oz"), cached per tag by _set_text.
+            # Pass 56: the group show above showed EVERY cup tag, the
+            # hidden canvas fallback too; update_cup puts each cup back to
+            # its sprites (or its fallback), as the menu does for a tile
+            # after _show_slot (before the next idle redraw).
+            upvar #0 ::plugins::DrinkMenu::cups cups
             set k 0
             foreach {vid vdef} $vessels {
                 if {$k >= $L(ed_ves_pool)} { break }
                 ${NS}::_set_text $page ed_ves${k}_cap \
                     [${NS}::format_amount [dict get $vdef capacity] $ui_unit]
+                if {[info exists cups(ed_ves${k}_cup)]} {
+                    ${NS}::update_cup $page ed_ves${k}_cup [dict get $cups(ed_ves${k}_cup) drink]
+                }
                 incr k
             }
         }
@@ -8981,6 +9363,10 @@ namespace eval ::dui::pages::DrinkMenu_edit {
         # focus, and an empty name shows its hint.
         ${NS}::_name_hint_apply
         ${NS}::_show_tags $page ed_done* [${NS}::_name_focused]
+        # Pass 53: visible cups still on the empty photo get their sprites
+        # (the preview cup with no draft; since Pass 56 the vessel branch
+        # above already fills the picker's through update_cup).
+        ${NS}::_cup_fill_pending $page
     }
 
     # v1.17.1 (F22): the draft is painted before the page appears (it

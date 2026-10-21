@@ -4,6 +4,88 @@ Entries follow the CLAUDE.md doc cap (about 15 lines; write-capability
 passes documented in full). The long pre-trim entries for v0.1.0 to
 v0.13.2 survive in the Desktop archive snapshot of each version.
 
+## v1.18.8 - 2026-10-21 - Pass 57: release prep for de1app PR #372 (comments and docs only) - TABLET-VERIFIED 16:35 (verify.sh PASS run 1; pages pixel-identical to 1.18.3, clean boot log)
+
+Base: v1.18.7 (on the tablet). Polish/docs; patch. Owner 2026-10-21: prep the release; workspace =
+archive = what ships. No behaviour change.
+- Folds in the comment and doc edits made after the v1.18.7 archive: the editor refresh's comment on
+  `_cup_fill_pending`, README's "the tap is refused while the machine is busy", the v1.18.7 header.
+- The comment above `_persist` said "Three callers only"; there are six, and the app/machine write
+  is `to_machine_tap`'s. README's v0.12.0 note no longer says "writes only its own settings file".
+- The v1.18.7 entry and PROJECT_STATE now give the real pass_56 counts (8 passed, v1.18.6 fails 5).
+- Safety status: unchanged, no write behaviour changed; the standing write set is v1.18.3's.
+
+## v1.18.7 - 2026-10-21 - Pass 56: the vessel picker shows its cups' sprites only - verify.sh PASS 13:50 (pages pixel-identical to 1.18.3, clean boot log); the vessel picker change itself is OFFLINE-PROVEN only (DevBridge cannot open Vessel mode; the owner checks it by eye)
+
+Base: v1.18.6 (on the tablet). Protocol lane (editor refresh); patch. Parent session's review of 1.18.6.
+- Pre-existing since the cup sprites (Pass 44; same on 1.18.2): vessel mode shows every
+  `cup_tags ed_ves<k>_cup` tag, so each picker cup also showed its hidden canvas fallback (flat shadow
+  oval, jagged stroke, handle oval, stem) over its sprites. The vessel branch now runs `update_cup`
+  per picker cup after the group show, as the menu does for a tile after `_show_slot`.
+- `mark_log` stays silent on the mid-session path (partial totals); a lazy boot keeps its line.
+- Comments: `_cup_fill` header and the pass-55 labels.
+- Offline: pass_56_offline.tcl 8 passed (v1.18.6 fails 5; the coupe-stem refusal fails on 1.18.5);
+  pass_54 8, pass_53 14, pass_52 20, pass_51 15, pass_50 35, geometry 525.
+- Safety status: unchanged, no write behaviour changed; the standing write set is v1.18.3's.
+
+## v1.18.6 - 2026-10-21 - Pass 55: review lows for the lazy painting (fallbacks and logs) - TABLET-VERIFIED 01:50 (verify.sh PASS run 1; pages pixel-identical to 1.18.3)
+
+Base: v1.18.5 (on the tablet). Patch; fallback and log paths only, nothing changes on the normal path.
+- A sprite pair refused when a waiting cup is filled now goes through `update_cup` (canvas shadow,
+  handle and stroke placed and shown, inked stem); 1.18.5 only flipped visibility.
+- glass_log/cup_log log only when app start painted every page; a menu set up inside its first
+  show (mid-session enable) logged partial, menu-only totals (a lazy boot was already silent).
+- Offline: pass_54_offline.tcl 8 passed (refusal now also checks the handle; mid-session logs no partial
+  totals); pass_53 14, pass_52 20, pass_51 15, pass_50 35, geometry 525.
+- Safety status: unchanged, no write behaviour changed; the standing write set is v1.18.3's.
+
+## v1.18.5 - 2026-10-21 - Pass 54: a plugin enabled mid-session gets its cards (1.18.4 regression) - TABLET-VERIFIED 01:07 (verify.sh PASS run 1; mid-session enable driven on the tablet: menu, drink and editor first visits pixel-identical to 1.18.3)
+
+Base: v1.18.4 (on the tablet). Protocol lane (page setup/load); patch. Found by the parent session's review.
+- REGRESSION in 1.18.4: enabled mid-session (Extensions), the pages are added without setup and dui
+  sets each up inside its first show, AFTER `load` returned (dui.tcl ~6621); no `_paint` follows, so
+  the cards stayed on empty photos and the cups on `dm_pending` (no outline, shadow or handle).
+- Fix: `_page_load` marks a page it finds not set up (`eager_setup`); `_lazy_for` then paints that
+  setup at once, as v1.18.3 did. No internal dui call (`::dui::page::setup` is not exported).
+- Also: glass_log/cup_log stay silent for a lazy menu (the first-open lines carry the counts);
+  `_cup_fill` on a refused pair shows the canvas fallback like `update_cup`; a card photo that both
+  painters refuse logs a NOTICE.
+- Offline: pass_54_offline.tcl 8 passed (v1.18.4 fails 4); pass_53 14, pass_52 20, pass_51 15, pass_50 35, geometry 525.
+- Side effect of the tablet test (adb taps on Extensions, against the "never tap coordinates" rule): the
+  off/on moved DrinkMenu to the END of `enabled_plugins`; it now loads after GA, SHE and MT.
+- Safety status: unchanged, no write behaviour changed; the standing write set is v1.18.3's.
+
+## v1.18.4 - 2026-10-21 - Pass 53: card photos and cup sprites paint on first open, not at app start - TABLET-VERIFIED 00:34 (verify.sh PASS run 1; first opens: menu 385 ms, drink 1183 ms, editor 1472 ms; page screenshots pixel-identical to 1.18.3)
+
+Base: v1.18.3 (on the tablet). Protocol lane (page setup/load lifecycle); patch. Owner: "do this task here".
+- App start no longer paints the 7 card photos and 26 cup sprites (1176 + 1144 ms, ~5.9 MB on the
+  tablet) in page setup. After a 2x2 PNG probe, setup puts card items on EMPTY photos under their
+  final names and cup sprite items on `dm_pending`; each page's first `_paint` (its F22 load, before
+  it appears) paints its photos in place and its visible cups. `update_cup` and the editor's picker
+  wait until then (`paint_wait`); the vessel picker's cups fill when vessel mode first shows them.
+- Fallbacks: a refused probe = the old setup-time path exactly; a PNG refused at paint time = the
+  put photo, padded into the shadow margin its items sit for. Mark sprites stay at setup (116 ms).
+- One NOTICE per page: "first open of <page> painted card photos N, cup sprites M, X MB, in T ms".
+- geometry_check pins `lazy_paint 0` (it tests the painters); pass_53_offline.tcl 14 passed
+  (v1.18.3 fails 9): same coords and photo sizes as setup-time mode for all 69 image items.
+- Safety status: unchanged, no write behaviour changed (photos are in memory only); the standing
+  write set is the one stated for v1.18.3.
+
+## v1.18.3 - 2026-10-20 - Pass 52: never apply a missing or invalid profile link (John's PR #372 review) - TABLET-VERIFIED 23:58 (verify.sh PASS run 1; Extensions description screenshot checked: 3 lines)
+
+Base: v1.18.2 (= the reviewed eb7da2c). Protocol lane (the To machine tap); patch.
+- BUG FOUND (live since v1.10.0): the core's `select_profile` resets profile settings before its
+  file check, and the bundled Graphical Flow Calibrator drops its -1, so a stale link said
+  "Profile set" and a second later the half-reset settings were saved and sent.
+- Fix: `to_machine_tap` first checks `valid_profile_fn` (plain name: no / or \, not . or ..,
+  <= 128 chars, no control chars) and `file exists "[_data_root]/profiles/${fn}.tcl"` (the core's
+  string; `_data_root` = data_directory, else homedir). A miss: NOTICE + note, whole tap refused.
+- data_directory branch offline only (tablet core 1.46.1 predates it). Docs now say what To
+  machine does (v1.10.0 to v1.18.2 understated it). Offline: pass_52 20 passed (v1.18.2 fails 15).
+- Safety status: (1) own settings via `_persist`; (2) To machine tap only: `select_profile` (valid,
+  existing link only), `::settings(water_volume)`, core `save_settings` + `save_settings_to_de1`.
+  New: one read-only path check. No SDB or history access. `package require Tcl 8.5` open.
+
 ## v1.18.2 - 2026-10-13 - Shorter Extensions description (polish)
 
 Base: v1.18.1. Found in the 2026-10-13 skin-compatibility test: the core Extensions page

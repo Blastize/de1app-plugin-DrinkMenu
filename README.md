@@ -1,11 +1,11 @@
 # Drink Menu
 
 **A visual espresso drink menu on the tablet: every drink drawn as a cup with its layers.**
-Version 1.18.2 · a plugin for the Decent DE1app · by Blastize
+Version 1.18.8 · a plugin for the Decent DE1app · by Blastize
 
 ![The menu: a grid of cups with coloured layers, tabs for hot, cold, milk, favorites and custom](docs/menu.png)
 
-**The menu.** 45 espresso drinks, each drawn as a cup with its ingredient layers and its size. Tabs for hot, cold, milk, no milk, favorites and your own drinks; ml or oz.
+**The menu.** 43 espresso drinks, plus your own, each drawn as a cup with its ingredient layers and its size. Tabs for hot, cold, milk, no milk, favorites and your own drinks; ml or oz.
 
 ![Drink detail: the cup with labelled layers, totals, ratio and method](docs/detail.png)
 
@@ -33,7 +33,7 @@ Copy the folder to `de1plus/plugins/DrinkMenu/` (including the three `<width>x<h
 
 ## Safety
 
-Writes only its own settings file (unit, favorites, hidden drinks, custom drinks). No shot database or history access. "To machine" loads a profile and sets the hot-water volume through the app's own calls, on one explicit tap, and never starts a flow.
+Drink Menu saves its own settings file (unit, favorites, hidden drinks, custom drinks). On a drink's page, **To machine** changes the app and the machine, on that one tap only: it selects the drink's linked profile (custom drinks) and sets the hot-water volume from the drink's hot water, then saves the app's settings and sends them to the machine through the app's own calls. If the drink's profile link is invalid or its file is missing, the whole tap is refused with a note and a log line: nothing is set, saved or sent. The tap is refused while the machine is busy and never starts a flow. No shot database or history access.
 
 <details>
 <summary><b>Full reference and version notes</b></summary>
@@ -47,7 +47,47 @@ custom drinks. Presets are read-only for the user. Since v0.11.0 the
 pages carry the design mock's own warm brown look, whatever skin theme
 is active.
 
-Author: **Blastize** - Current version: **1.18.2** (shorter Extensions description)
+Author: **Blastize** - Current version: **1.18.8** (release prep: comments and docs)
+
+## New in v1.18.8
+
+Nothing you see changes: comments and these notes were brought up to date for the release.
+
+## New in v1.18.7
+
+In the editor, Vessel shows each cup as on the menu again: no hard flat shadow and no
+jagged outline drawn over the smooth one (an old glitch, there since the smooth cups came).
+
+## New in v1.18.6
+
+Small fixes behind the scenes; nothing you see changes. If the tablet ever refused a cup
+outline image, the cup now falls back to its plain drawn outline in full, and when the plugin
+is enabled without a restart the log no longer reports partial card counts.
+
+## New in v1.18.5
+
+A fix for 1.18.4. If you enabled Drink Menu in Extensions without restarting the app,
+the first visit to each page showed empty cards and cups without outlines. Now those
+pages paint everything as they are set up, as before 1.18.4. With the plugin enabled
+when the app starts, the faster start from 1.18.4 stays.
+
+## New in v1.18.4
+
+The app starts faster with Drink Menu enabled. The glass cards and the
+cup outlines used to be painted while the app started, about 2.3 seconds
+and 6 MB on the tablet even if you never opened the menu. Now each page
+paints its own the first time you open it, before it appears: the first
+open of the menu, a drink and the editor each takes a moment longer,
+once per session, and everything looks exactly as before.
+
+## New in v1.18.3
+
+"To machine" now checks a drink's linked profile before it uses it. If the
+profile was deleted or renamed, or the link is not a plain profile name,
+the button says so and nothing changes: no profile, no water, nothing
+saved or sent. Before, a stale link could report "Profile set" while the
+app was left with half-reset profile settings. The Extensions description
+now says what To machine does.
 
 ## New in v1.18.2
 
@@ -452,9 +492,10 @@ geometry - nothing about what the plugin *does* changed.
   Favorited** button, the tile star and the star tab all read the same
   list, so toggling from any of them updates the others.
 - **No new write capability.** The star is a new entry point to the
-  favorite toggle the detail page already had; the plugin still writes
-  only its own settings file, through the same single `_persist` proc
-  with the same six callers.
+  favorite toggle the detail page already had; the star saves to the
+  plugin's own settings file, through the same single `_persist` proc
+  with the same six callers. (The plugin's other write, the "To
+  machine" tap added in v1.10.0, is unchanged; see Safety.)
 
 ## New in v0.11.0
 
@@ -752,8 +793,8 @@ defaults to 0 and logs nothing.
 
 ## Safety
 
-- **Settings writes**: the plugin writes only its own
-  `plugins/DrinkMenu/settings.tdb`, and only the keys `unit`,
+- **Its own settings**: the plugin saves its own settings file through
+  `plugins save_settings`, and only the keys `unit`,
   `favorites`, `hidden` and `custom`, through one proc (`_persist`).
   Three single-tap callers (unit toggle, Favorite, Hide/Unhide) and
   three editor callers that run only from a confirmation card (save
@@ -774,8 +815,27 @@ defaults to 0 and logs nothing.
 - **presets.tcl is read-only data**; nothing mutates it at runtime, and
   the user can never edit or overwrite a preset -- editing one always
   creates a custom copy.
-- **No data access outside the plugin folder**: SDB is never opened,
-  `history/` and `history_v2/` are never read or written.
+- **The app and the machine, on one tap only** (since v1.10.0; the
+  descriptions before v1.18.3 left this out): the drink page's "To
+  machine" selects a custom drink's linked profile with the app's own
+  `select_profile`, sets `water_volume` from the drink's hot water
+  (10 to 250 ml), and a second later runs the app's `save_settings` (the
+  app's settings file) and `save_settings_to_de1` (the machine). Refused
+  while the machine is busy; never starts a flow. Because it goes
+  through `select_profile`, other plugins' profile hooks (Describe Your
+  Espresso, Graphical Flow Calibrator) run just as they do when you pick
+  the profile in the app.
+- **A profile link is checked first** (v1.18.3): it must be a plain
+  profile name, and its file must exist where the app will open it,
+  before `select_profile` is called. Otherwise the tap is refused with a
+  note and a log line, and nothing is set, saved or sent.
+- **Paths**: the plugin builds one data path itself, read-only: that
+  profile check (`[data_directory]/profiles/<name>.tcl`, or
+  `[homedir]/...` on cores without `data_directory`). Settings, profiles
+  and the app settings go through the app's own procs. It reads its own
+  `presets.tcl` and `bg.png` files next to `plugin.tcl`; card images are
+  made in memory. SDB is never opened, `history/` and `history_v2/` are
+  never read or written.
 - The Lumen skin is not modified.
 
 ## Install
